@@ -1,0 +1,111 @@
+<template>
+  <div>
+    <input type="file" accept="application/pdf" placeholder="選擇PDF檔案"/>
+  </div>
+  <canvas id="canvas" style="border: 1px solid #000"></canvas>
+
+  <p>選擇簽名</p>
+  <img class="sign" style="border: 1px solid #000" width="250" height="150" alt=""/>
+
+  <button class="download">download PDF</button>
+  <router-link to="/signature">上一頁</router-link>
+
+</template>
+
+<script setup>
+import {onMounted} from "vue";
+import jsPDF from "jspdf";
+import {fabric} from "fabric";
+
+const Base64Prefix = "data:application/pdf;base64,";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://mozilla.github.io/pdf.js/build/pdf.worker.js";
+onMounted(() => {
+  const canvas = new fabric.Canvas("canvas");
+  document.querySelector("input").addEventListener("change", async (e) => {
+    canvas.requestRenderAll();
+    const pdfData = await printPDF(e.target.files[0]);
+    const pdfImage = await pdfToImage(pdfData);
+
+    // 調整canvas大小
+    canvas.setWidth(pdfImage.width / window.devicePixelRatio);
+    canvas.setHeight(pdfImage.height / window.devicePixelRatio);
+    canvas.setBackgroundImage(pdfImage, canvas.renderAll.bind(canvas));
+  });
+
+  const pdf = new jsPDF();
+  const download = document.querySelector(".download");
+  download.addEventListener("click", () => {
+    const image = canvas.toDataURL("image/png");
+    const width = pdf.internal.pageSize.width;
+    const height = pdf.internal.pageSize.height;
+    pdf.addImage(image, "png", 0, 0, width, height);
+    pdf.save("download.pdf");
+  });
+
+// 加入簽名
+  const sign = document.querySelector(".sign");
+  if (localStorage.getItem("img")) {
+    sign.src = localStorage.getItem("img");
+  }
+  sign.addEventListener("click", () => {
+    if (!sign.src) return;
+
+    fabric.Image.fromURL(sign.src, function (image) {
+      image.top = 400;
+      image.scaleX = 0.5;
+      image.scaleY = 0.5;
+      canvas.add(image);
+    });
+  });
+
+})
+
+const pdfToImage = async (pdfData) => {
+  const scale = 1 / window.devicePixelRatio;
+  return new fabric.Image(pdfData, {
+    scaleX: scale,
+    scaleY: scale,
+  });
+}
+const printPDF = async (pdfData) => {
+  // 將檔案處理成 base64
+  pdfData = await readBlob(pdfData);
+  // 將 base64 中的前綴刪去，並進行解碼
+  const data = atob(pdfData.substring(Base64Prefix.length));
+
+ //載入pdf
+  const pdfDoc = await pdfjsLib.getDocument({data}).promise;
+  // 抓第一頁
+  const pdfPage = await pdfDoc.getPage(1);
+
+  // 設定尺寸及產生 canvas
+  const viewport = pdfPage.getViewport({scale: window.devicePixelRatio});
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  // 控制顯示PDF的寬高
+  canvas.height = viewport.height;
+  canvas.width = viewport.width;
+  const renderContext = {
+    canvasContext: context,
+    viewport,
+  };
+  const renderTask = pdfPage.render(renderContext);
+
+  // 回傳做好的canvas
+  return renderTask.promise.then(() => canvas);
+}
+const readBlob = (blob) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", reject);
+    reader.readAsDataURL(blob);
+  });
+}
+</script>
+
+<style scoped>
+
+</style>
